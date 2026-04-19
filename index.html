@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BPC Projections — Web</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="card">
+    <div class="globe" aria-hidden="true">🌐</div>
+
+    <section class="row">
+      <span class="label">Image</span>
+      <span id="imageName" class="name">No image selected</span>
+      <button id="pickImage" class="btn-secondary" type="button">Choose…</button>
+      <input id="imageInput" type="file" accept="image/*" hidden />
+    </section>
+
+    <section class="row">
+      <span class="label">Audio</span>
+      <span id="audioName" class="name">No audio selected</span>
+      <button id="pickAudio" class="btn-secondary" type="button">Choose…</button>
+      <input id="audioInput" type="file" accept="audio/*" hidden />
+    </section>
+
+    <section id="dropZone" class="dropzone">
+      <div class="dropzone-title">Drag &amp; drop an image and an MP3 here</div>
+      <div class="dropzone-sub">Tip: you can drop them one by one</div>
+      <div id="dropReady" class="dropzone-sub"></div>
+    </section>
+
+    <p id="status" class="status">Idle</p>
+
+    <section class="console-wrap">
+      <div class="console-header">
+        <span>Console</span>
+        <button id="copyLog" class="btn-link" type="button" disabled>Copy</button>
+      </div>
+      <pre id="console" class="console">(No output yet)</pre>
+    </section>
+
+    <div class="actions">
+      <button id="convert" class="btn-primary" type="button" disabled>Convert</button>
+      <a id="download" class="btn-link" hidden download>Download MP4</a>
+    </div>
+
+    <p id="hint" class="hint">Select an image and an audio file to enable Convert.</p>
+  </main>
+
+  <script src="vendor/ffmpeg.js"></script>
+  <script src="vendor/util.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
