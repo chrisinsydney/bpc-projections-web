@@ -17,7 +17,155 @@
     convert: document.getElementById("convert"),
     download: document.getElementById("download"),
     hint: document.getElementById("hint"),
+    historyList: document.getElementById("historyList"),
+    clearHistory: document.getElementById("clearHistory"),
   };
+
+  // ---- IndexedDB persistence ----
+  const DB_NAME = "bpc_conversions";
+  const STORE = "videos";
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) {
+          const store = db.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
+          store.createIndex("createdAt", "createdAt");
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function saveVideo(record) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const req = tx.objectStore(STORE).add(record);
+      req.onsuccess = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function listVideos() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const items = [];
+      const req = tx.objectStore(STORE).index("createdAt").openCursor(null, "prev");
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (cur) { items.push(cur.value); cur.continue(); }
+        else resolve(items);
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function getVideo(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).get(id);
+      req.onsuccess = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function deleteVideo(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function clearVideos() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    );
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  async function renderHistory() {
+    let items = [];
+    try { items = await listVideos(); }
+    catch (e) {
+      els.historyList.innerHTML = `<li class="history-empty">⚠️ Could not load history: ${escapeHtml(e.message || e)}</li>`;
+      els.clearHistory.disabled = true;
+      return;
+    }
+    if (items.length === 0) {
+      els.historyList.innerHTML = '<li class="history-empty">No past conversions yet.</li>';
+      els.clearHistory.disabled = true;
+      return;
+    }
+    els.clearHistory.disabled = false;
+    els.historyList.innerHTML = items.map((item) => {
+      const date = new Date(item.createdAt).toLocaleString();
+      return `
+        <li class="history-item">
+          <div class="history-meta">
+            <div class="history-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+            <div class="history-sub">${formatBytes(item.size)} · ${escapeHtml(date)}</div>
+          </div>
+          <div class="history-actions">
+            <button class="btn-link" data-action="download" data-id="${item.id}" type="button">Download</button>
+            <button class="btn-link" data-action="delete" data-id="${item.id}" type="button">Delete</button>
+          </div>
+        </li>
+      `;
+    }).join("");
+  }
+
+  els.historyList.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    const action = btn.dataset.action;
+    if (action === "download") {
+      const item = await getVideo(id);
+      if (!item) return;
+      const url = URL.createObjectURL(item.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = item.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } else if (action === "delete") {
+      if (!confirm("Delete this conversion?")) return;
+      await deleteVideo(id);
+      await renderHistory();
+    }
+  });
+
+  els.clearHistory.addEventListener("click", async () => {
+    if (!confirm("Delete ALL past conversions? This cannot be undone.")) return;
+    await clearVideos();
+    await renderHistory();
+  });
 
   let imageFile = null;
   let audioFile = null;
@@ -164,11 +312,15 @@
       setStatus("Running ffmpeg…");
       const code = await ff.exec([
         "-y",
+        "-framerate", "1",
         "-loop", "1",
         "-i", imageIn,
         "-i", audioIn,
         "-c:v", "libx264",
         "-tune", "stillimage",
+        "-preset", "ultrafast",
+        "-vf", "scale='min(1280,iw)':-2",
+        "-r", "1",
         "-c:a", "aac",
         "-b:a", "192k",
         "-pix_fmt", "yuv420p",
@@ -186,6 +338,23 @@
       els.download.hidden = false;
       setStatus(`✅ Done: ${outName} (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
 
+      try {
+        await saveVideo({
+          name: outName,
+          blob,
+          size: blob.size,
+          sourceImage: imageFile.name,
+          sourceAudio: audioFile.name,
+          createdAt: Date.now(),
+        });
+        if (navigator.storage?.persist) {
+          navigator.storage.persist().catch(() => {});
+        }
+        await renderHistory();
+      } catch (e) {
+        appendLog(`[Warning] Could not save to history: ${e.message || e}\n`);
+      }
+
       // Clean up virtual FS
       await ff.deleteFile(imageIn).catch(() => {});
       await ff.deleteFile(audioIn).catch(() => {});
@@ -201,4 +370,6 @@
   }
 
   els.convert.addEventListener("click", convert);
+
+  renderHistory().catch((e) => console.warn("History render failed:", e));
 })();

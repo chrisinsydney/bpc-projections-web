@@ -46,6 +46,17 @@
     </div>
 
     <p id="hint" class="hint">Select an image and an audio file to enable Convert.</p>
+
+    <section class="history">
+      <div class="history-header">
+        <span>Past conversions</span>
+        <button id="clearHistory" class="btn-link" type="button" disabled>Clear all</button>
+      </div>
+      <ul id="historyList" class="history-list">
+        <li class="history-empty">No past conversions yet.</li>
+      </ul>
+      <p class="history-note">Saved in your browser (IndexedDB). Files persist across reloads but are lost if you clear site data.</p>
+    </section>
   </main>
 
   <script src="vendor/ffmpeg.js"></script>
